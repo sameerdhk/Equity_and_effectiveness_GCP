@@ -159,6 +159,22 @@ python scripts/supplementary/03_analyze_marginal_revenue_cost.py
 python scripts/supplementary/04_analyze_marginal_yield_improvement.py
 ```
 
+## Large model artifacts (Zenodo reference snapshot)
+
+This repository contains the full analysis and model workflow (scripts, package code, and small reference datasets). The large `inputs/` and `outputs/` directories are **not tracked in GitHub** due to size constraints.
+
+All `inputs/` and `outputs/` can be generated from scratch using the scripts in `scripts/` (see `scripts/analysis/` for input preparation and scenario runs). For transparency and verification, we provide a **reference snapshot** of the generated artifacts on Zenodo:
+
+- **Zenodo archive:** `model_inputs_output.zip`  
+- **link:** *https://doi.org/10.5281/zenodo.18089224*
+
+This Zenodo snapshot can be used in two ways:
+
+1. **Verification / regression testing:** Run the workflow locally (or on HPC) to generate `inputs/` and `outputs/`, then compare against the Zenodo snapshot to verify reproducibility.
+2. **Convenience:** Download the snapshot to inspect run-ready inputs, policy outputs, and figure products without running the full pipeline.
+
+**To use the Zenodo snapshot directly:** download `model_inputs_output.zip` and unzip it into the repository root (the same folder as `README.md`), **preserving paths** as shown in the repository structure.
+
 ---
 ## Citation
 
