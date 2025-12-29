@@ -1,0 +1,20 @@
+# Keep data tracked (do NOT ignore data/)
+
+# Ignore everything inside inputs/ and outputs/
+inputs/**
+outputs/**
+
+# But keep folder structure via .gitkeep placeholders
+!inputs/**/
+!outputs/**/
+!inputs/**/.gitkeep
+!outputs/**/.gitkeep
+
+# Junk
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
