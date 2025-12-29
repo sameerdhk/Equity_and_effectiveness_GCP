@@ -1,0 +1,22 @@
+Metadata-Version: 2.4
+Name: py_champ
+Version: 1.0.0
+Summary: file: README.md
+Author-email: Chung-Yi Lin <philip928lin@gmail.com>
+Requires-Dist: dill
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: gurobipy
+Requires-Dist: scipy
+Requires-Dist: joblib
+Requires-Dist: pyswarms
+Requires-Dist: mesa==2.1.1
+Provides-Extra: doc
+Requires-Dist: myst_parser; extra == "doc"
+Provides-Extra: build
+Requires-Dist: hatchling; extra == "build"
+Provides-Extra: dev
+Requires-Dist: ipython; extra == "dev"
+Requires-Dist: jupyterlab; extra == "dev"
+Provides-Extra: lint
+Requires-Dist: pre-commit>=2.20.0; extra == "lint"
