@@ -25,7 +25,7 @@ cd Equity_and_effectiveness_GCP
 The core agent-based model is contained within the `py_champ_package` folder. Install it in editable mode from the `scripts/py_champ_package` directory, which will also install all required Python dependencies listed in `pyproject.toml`.
 
 ```bash
-pip install -e scripts/py_champ_packag
+pip install -e scripts/py_champ_package
 ```
 
 For more information on PyCHAMP, see the [PyCHAMP user manual](https://dises-pychamp.readthedocs.io/en/latest/index.html) and [“PyCHAMP: A crop-hydrological-agent modeling platform for groundwater management”](https://www.sciencedirect.com/science/article/pii/S1364815224002482).
