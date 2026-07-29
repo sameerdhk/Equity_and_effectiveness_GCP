@@ -124,7 +124,7 @@ python scripts/analysis/02_prepare_model_inputs.py
 
 Run each of the following scripts sequentially. Each script will run the 500 bootstrap scenarios for its respective policy. These codes are also tailored for High-Performance Computing (HPC) runs. 
 ```bash
-python scripts/analysis/03_run_bs_scenarios.py
+python scripts/analysis/03_run_bs_scenario.py
 python scripts/analysis/04_run_ur_scenarios.py
 python scripts/analysis/05_run_fb_scenarios.py --policy_mode FB
 python scripts/analysis/05_run_fb_scenarios.py --policy_mode FB_CB
