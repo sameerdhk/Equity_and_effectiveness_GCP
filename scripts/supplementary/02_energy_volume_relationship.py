@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # 02_energy_volume_relationship.py
 #
-# This script strictly validates the "Zero-Intercept" hypothesis for the
+# This script evaluates the "Zero-Intercept" hypothesis for the
 # Energy-Volume relationship. It tests whether the Marginal Cost (MC) of
 # pumping can be accurately approximated as a simple ratio of Total Cost to
 # Total Volume (MC = C/V), rather than requiring a regression with an intercept.

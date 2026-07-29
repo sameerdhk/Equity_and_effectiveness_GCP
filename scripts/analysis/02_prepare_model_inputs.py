@@ -7,7 +7,7 @@
 #
 # Steps:
 #   1. Sets up robust file paths to automatically locate input/output dirs.
-#   2. Iterates through each of the 100 bootstrapped CSV files.
+#   2. Iterates through each of the 500 bootstrapped CSV files.
 #   3. For each scenario, it processes precipitation, price, and cost data
 #      into time-series and rolling average dictionaries.
 #   4. Loads static farm and aquifer data (e.g., grid info, well depths).

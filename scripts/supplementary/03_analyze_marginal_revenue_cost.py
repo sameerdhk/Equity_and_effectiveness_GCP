@@ -2,7 +2,8 @@
 # 03_analyze_marginal_revenue_cost.py
 #
 # This script performs a supplementary economic analysis of the Fee-Based (FB)
-# policy. It verifies whether the marginal cost of extracting a unit of
+# policy. It ssesses whether the modeled relationship is consistent, i.e., 
+# the marginal cost of extracting a unit of
 # groundwater is equal to the marginal revenue obtained from it.
 #
 # This analysis recalculates the theoretical

@@ -39,7 +39,7 @@ except NameError:
     print("Could not set PROJECT_ROOT automatically. Using current working directory.")
     PROJECT_ROOT = Path(os.getcwd())
 
-PACKAGE_PATH = PROJECT_ROOT / "scripts" / "parent_package"
+PACKAGE_PATH = PROJECT_ROOT / "scripts" / "py_champ_package"
 sys.path.insert(0, str(PACKAGE_PATH))
 
 from py_champ.models.gcp_model_ur import GCPModelUr
@@ -272,7 +272,8 @@ if __name__ == "__main__":
             print(f"\nWarning: Input file not found for scenario {scenario_name}. Skipping.")
 
     print("\nAll specified scenarios have been processed.")
-#%% This script is designed to be run after all the uniform restriction (UR)
+#%%######################### WARNING #####################################
+#This script is designed to be run after all the uniform restriction (UR)
 # scenarios have completed. It scans the output directory for the generated
 # Excel files, parses the filenames to extract the final optimal water limit
 # for each scenario, and compiles them into a single summary CSV file.

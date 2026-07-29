@@ -2,16 +2,12 @@
 # 05_run_fb_scenarios.py
 #
 # Runs Fee-Based (FB) scenarios and can also run the
-# Fee-Based + Cash-for-Blue (FB_CB) extension once the model/behavior logic is
-# added. Standard FB remains the default.
+# Fee-Based + Cash-for-Blue (FB_CB) 
 #
 # Key idea:
 #   POLICY_MODE = "FB"     -> original fee-based policy
 #   POLICY_MODE = "FB_CB"  -> fee-based policy with cash-for-blue logic
 #
-# For now, this run file passes `policy_mode` and `cash_for_blue_config` into
-# GCPModelFb. The current model will ignore those kwargs until we update the
-# model/behavior files in later steps.
 # -----------------------------------------------------------------------------
 
 # --- 1. Import Libraries ---
@@ -33,7 +29,7 @@ try:
 except NameError:
     PROJECT_ROOT = Path(os.getcwd())
 
-PACKAGE_PATH = PROJECT_ROOT / "scripts" / "parent_package"
+PACKAGE_PATH = PROJECT_ROOT / "scripts" / "py_champ_package"
 sys.path.insert(0, str(PACKAGE_PATH))
 
 from py_champ.models.gcp_model_fb import GCPModelFb

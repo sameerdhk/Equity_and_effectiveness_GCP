@@ -195,7 +195,7 @@ except NameError:
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 FIGURES_DIR = OUTPUTS_DIR / "figures"
-SI_FIGURES_DIR = FIGURES_DIR / "SI"
+SI_FIGURES_DIR = FIGURES_DIR / "supplementary"
 SI_FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 POLICY_PATHS = {
@@ -763,7 +763,7 @@ except NameError:
 
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 FIGURES_DIR = OUTPUTS_DIR / "figures"
-SI_FIGURES_DIR = FIGURES_DIR / "SI"
+SI_FIGURES_DIR = FIGURES_DIR / "supplementary"
 SI_FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 POLICY_PATHS = {

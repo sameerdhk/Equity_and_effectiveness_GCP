@@ -36,7 +36,7 @@ try:
 except NameError:
     PROJECT_ROOT = Path(os.getcwd())
 
-PACKAGE_PATH = PROJECT_ROOT / "scripts" / "parent_package"
+PACKAGE_PATH = PROJECT_ROOT / "scripts" / "py_champ_package"
 sys.path.insert(0, str(PACKAGE_PATH))
 
 # This policy uses the standard UR model, as the policy logic is applied

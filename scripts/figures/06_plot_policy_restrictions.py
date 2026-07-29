@@ -4,7 +4,7 @@
 # This script generates the summary figure for the optimal policy restriction
 # values (e.g., Figure 2 in the manuscript). It processes the output files
 # from five different policy run directories, extracting the final converged
-# policy value (e.g., water limit, fee, cutoff) for each of the 100
+# policy value (e.g., water limit, fee, cutoff) for each of the 500
 # bootstrap scenarios.
 #
 # It then calculates the median, range (min/max), and coefficient of variation
@@ -41,7 +41,7 @@ POLICY_PATHS = {
     "FB-II": OUTPUTS_DIR / "fb_cb_runs",
     "PR-I": OUTPUTS_DIR / "pr1_runs",
     "PR-II": OUTPUTS_DIR / "pr2_runs",
-    "PWPR": OUTPUTS_DIR / "pr_upr_runs"
+    "PWPR": OUTPUTS_DIR / "r_plus_pr_runs"
 }
 
 UR_RESULTS_PATH = OUTPUTS_DIR / "ur_runs" / "ur_optimal_water_limits.csv"

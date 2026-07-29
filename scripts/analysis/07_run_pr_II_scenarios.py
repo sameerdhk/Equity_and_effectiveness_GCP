@@ -32,7 +32,7 @@ try:
 except NameError:
     PROJECT_ROOT = Path(os.getcwd())
 
-PACKAGE_PATH = PROJECT_ROOT / "scripts" / "parent_package"
+PACKAGE_PATH = PROJECT_ROOT / "scripts" / "py_champ_package"
 sys.path.insert(0, str(PACKAGE_PATH))
 
 # This script requires a new, specialized model class for this policy
@@ -49,7 +49,7 @@ print(f"Saving PR-II model outputs to: {OUTPUT_DIR}")
 
 # --- 3. User Configuration ---
 START_SCENARIO = 1
-END_SCENARIO = 1
+END_SCENARIO = 500
 TARGET_WITHDRAWAL = 1900
 
 

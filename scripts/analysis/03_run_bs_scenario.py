@@ -40,7 +40,7 @@ except NameError:
     PROJECT_ROOT = Path(os.getcwd())
 
 # Add the parent package to the system path to allow for direct import
-PACKAGE_PATH = PROJECT_ROOT / "scripts" / "parent_package"
+PACKAGE_PATH = PROJECT_ROOT / "scripts" / "py_champ_package"
 sys.path.insert(0, str(PACKAGE_PATH))
 
 # Import the custom model class from its new location
