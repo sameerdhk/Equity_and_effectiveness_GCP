@@ -66,8 +66,8 @@ The final manuscript terminology is used in figures, tables, and reported result
 │   │   └── 08_run_r_plus_pr_scenarios.py      # Redistributes the UR regional budget by priority and runs PWPR.
 │   ├── figures/                               # Scripts for preparing data and generating manuscript figures.
 │   │   ├── 01_prepare_data_for_figures.py     # Aggregates model outputs into plotting datasets.
-│   │   ├── 02_plot_aquifer_and_crop_properties.py # Generates aquifer and crop-ratio time-series figures.
-│   │   ├── 03_plot_economic_outputs.py        # Generates profit and economic-water-productivity figures.
+│   │   ├── 02_plot_aquifer_and_crop_properties.py # Generates aquifer and crop-ratio time-series figures, including the SI figure.
+│   │   ├── 03_plot_economic_outputs.py        # Generates profit and economic-water-productivity figures, including the SI figure.
 │   │   ├── 04_plot_profit_distribution.R      # Generates farmer profit-distribution figures.
 │   │   ├── 05_plot_lorenz_curves.py           # Generates Lorenz curves and calculates Gini coefficients.
 │   │   └── 06_plot_policy_restrictions.py     # Generates policy-restriction distributions.
