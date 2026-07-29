@@ -3,6 +3,7 @@ Name: py_champ
 Version: 1.0.0
 Summary: file: README.md
 Author-email: Chung-Yi Lin <philip928lin@gmail.com>
+Maintainer-email: Sameer Dhakal <sameerdhakal@vt.edu>
 Requires-Dist: dill
 Requires-Dist: numpy
 Requires-Dist: pandas

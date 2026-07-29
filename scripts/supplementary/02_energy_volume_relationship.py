@@ -31,6 +31,7 @@ from pathlib import Path
 from sklearn.linear_model import LinearRegression
 from matplotlib.colors import LogNorm
 import re
+import statsmodels.api as sm
 
 # ------------------------------------------------------------
 # 2. Paths and constants
@@ -65,10 +66,10 @@ def parse_bootstrap_id_from_name(fname: str):
     return int(m.group(1)) if m else None
 
 # 2. Find all matching files
-fb_files = sorted(RESULTS_DIR.glob("profit_distribution_FB*.csv"))
+fb_files = sorted(RESULTS_DIR.glob("profit_distribution_FB_I_b_*.csv"))
 
 if not fb_files:
-    raise RuntimeError(f"No FB profit distribution files found in {RESULTS_DIR}")
+    raise RuntimeError(f"No FB-I profit distribution files found in {RESULTS_DIR}")
 
 print(f"Found {len(fb_files)} files. Loading...")
 
@@ -140,6 +141,50 @@ print(f"Number of observations:      {len(df)}")
 
 # Global residuals
 residuals_global = y_global - yhat_global
+
+# ------------------------------------------------------------
+# 4b. Unrestricted regression to test for a nonzero intercept
+#     E = alpha + beta * V
+# ------------------------------------------------------------
+V = df["volume_m3"].to_numpy()
+E = df["energy_dollars"].to_numpy()
+
+# Add a constant so the intercept is estimated rather than forced to zero
+X_unrestricted = sm.add_constant(V)
+
+# Cluster-robust standard errors account for observations belonging
+# to the same bootstrap realization
+reg_unrestricted = sm.OLS(E, X_unrestricted).fit(
+    cov_type="cluster",
+    cov_kwds={"groups": df["Bootstrap"].to_numpy()}
+)
+
+intercept_free = reg_unrestricted.params[0]
+slope_free = reg_unrestricted.params[1]
+
+ci = reg_unrestricted.conf_int(alpha=0.05)
+intercept_ci_low, intercept_ci_high = ci[0]
+slope_ci_low, slope_ci_high = ci[1]
+
+intercept_p = reg_unrestricted.pvalues[0]
+slope_p = reg_unrestricted.pvalues[1]
+
+print("\n=== Unrestricted regression E = alpha + beta V ===")
+print(f"Intercept alpha:             ${intercept_free:.6f}")
+print(
+    f"95% CI for intercept:        "
+    f"(${intercept_ci_low:.6f}, ${intercept_ci_high:.6f})"
+)
+print(f"Test H0: intercept = 0:      p = {intercept_p:.6f}")
+print(f"Slope beta:                  {slope_free:.6f} $/m³")
+print(
+    f"95% CI for slope:            "
+    f"({slope_ci_low:.6f}, {slope_ci_high:.6f}) $/m³"
+)
+
+print("\nObserved pumping-volume range:")
+print(f"Minimum: {V.min():,.2f} m³")
+print(f"Maximum: {V.max():,.2f} m³")
 
 # ------------------------------------------------------------
 # 5. Per-bootstrap zero-intercept regressions
@@ -255,7 +300,7 @@ ax.tick_params(axis='y', which='major', labelsize=TICK_FS)
 ax.text(0.02, 0.95, "(d)", transform=ax.transAxes, fontsize=14, fontweight="bold")
 
 plt.tight_layout()
-fig_path = OUT_DIR / "figS1_energy_volume_relationship.png"
+fig_path = OUT_DIR / "figS8_energy_volume_relationship.png"
 plt.savefig(fig_path, dpi=600, bbox_inches="tight")
 plt.show()
 

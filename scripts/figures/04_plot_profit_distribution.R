@@ -44,11 +44,11 @@ if (!dir.exists(FIGURES_DIR)) {
 }
 
 # --- 3. Define Plotting Styles ---
-policy_shortnames <- c("BAU", "UR", "FB", "PR-I", "PR-II", "R+PR")
+policy_shortnames <- c("BAU", "UR", "FB-I", "FB-II", "PR-I", "PR-II", "PWPR")
 
 colors <- c(
-  "BAU" = "#808080", "UR" = "#C00000", "FB" = "#FF7F0E",
-  "PR-I" = "#4169E1", "PR-II" = "#00BFFF", "R+PR" = "#DAA520"
+  "BAU" = "#808080", "UR" = "#C00000", "FB-I" = "#FF7F0E", "FB-II" = "#B85C00",
+  "PR-I" = "#4169E1", "PR-II" = "#00BFFF", "PWPR" = "#DAA520"
 )
 
 # Function to soften colors for the density plot fill
@@ -86,9 +86,9 @@ generate_plot <- function(data, title_text,
     theme_minimal() +
     theme(
       plot.title = element_text(hjust = 0.5, size = 20),
-      axis.title.x = element_text(size = 16),
-      axis.text.x = element_text(size = 14),
-      axis.text.y = element_text(size = 14),
+      axis.title.x = element_text(size = 18, color = "black"),
+      axis.text.x = element_text(size = 16, color = "black"),
+      axis.text.y = element_text(size = 18, color = "black"),
       legend.position = "none",
       panel.grid.major = element_line(linewidth = 0.5, linetype = 'dashed', color = "grey80"),
       panel.grid.minor = element_blank()

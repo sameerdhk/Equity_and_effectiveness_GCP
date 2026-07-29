@@ -37,18 +37,23 @@ os.makedirs(FIGURES_DIR, exist_ok=True)
 # Define paths for each policy's output directory
 POLICY_PATHS = {
     "UR": OUTPUTS_DIR / "ur_runs",
-    "FB": OUTPUTS_DIR / "fb_runs",
+    "FB-I": OUTPUTS_DIR / "fb_runs",
+    "FB-II": OUTPUTS_DIR / "fb_cb_runs",
     "PR-I": OUTPUTS_DIR / "pr1_runs",
     "PR-II": OUTPUTS_DIR / "pr2_runs",
-    "R+PR": OUTPUTS_DIR / "pr_upr_runs"
+    "PWPR": OUTPUTS_DIR / "pr_upr_runs"
 }
 
 UR_RESULTS_PATH = OUTPUTS_DIR / "ur_runs" / "ur_optimal_water_limits.csv"
 
 # Define consistent colors for each policy
 COLORS = {
-    "UR": "#C00000", "FB": "#FF7F0E", "PR-I": "#4169E1",
-    "PR-II": "#00BFFF", "R+PR": "#DAA520"
+    "UR": "#C00000",
+    "FB-I": "#FF7F0E",
+    "FB-II": "#B85C00",
+    "PR-I": "#4169E1",
+    "PR-II": "#00BFFF",
+    "PWPR": "#DAA520",
 }
 background_color = '#f4f4f4'
 plt.rcParams['font.family'] = 'Arial'
@@ -64,7 +69,8 @@ def get_policy_values(policy_name, directory):
     
     patterns = {
         "UR": r"ur_b_\d+_wl_(\d+\.?\d*)\.xlsx",
-        "FB": r"fb_b_\d+_pf_(\d+\.?\d*)\.xlsx",
+        "FB-I": r"fb_b_\d+_pf_(\d+\.?\d*)\.xlsx",
+        "FB-II": r"fb_cb_b_\d+_pf_(\d+\.?\d*)\.xlsx",
         "PR-I": r"pr1_b_\d+_co_(\d+\.?\d*)\.xlsx",
         "PR-II": r"pr2_b_\d+_sf_(\d+)\.xlsx",
     }
@@ -78,7 +84,7 @@ def get_policy_values(policy_name, directory):
 
 def calculate_r_plus_pr_stats(ur_results_path):
     """
-    Performs the detailed calculation for the R+PR policy by first extracting
+    Performs the detailed calculation for the PWPR policy by first extracting
     UR limits directly from the UR run filenames.
     """
     if not ur_results_path.exists():
@@ -137,8 +143,11 @@ VOLUME_SCALE = 1e4
 ur_vals = get_policy_values("UR", POLICY_PATHS["UR"])
 ur_vol = [v * INCH_TO_M * (FIELD_AREA_HA * HA_TO_M2) / VOLUME_SCALE for v in ur_vals]
 
-fb_vals = get_policy_values("FB", POLICY_PATHS["FB"])
+fb_vals = get_policy_values("FB-I", POLICY_PATHS["FB-I"])
 fb_fee = [v / ACRE_FOOT_TO_M3 for v in fb_vals]
+
+fb_cb_vals = get_policy_values("FB-II", POLICY_PATHS["FB-II"])
+fb_cb_fee = [v / ACRE_FOOT_TO_M3 for v in fb_cb_vals]
 
 pr1_vals = get_policy_values("PR-I", POLICY_PATHS["PR-I"])
 pr1_co = [v * 1 for v in pr1_vals]
@@ -149,14 +158,15 @@ panel_a_stats = {
     "UR": get_stats(ur_vol),
     "PR-I": get_stats(pr1_co),
     "PR-II": get_stats(pr2_vals),
-    "FB": get_stats(fb_fee)
+    "FB-I": get_stats(fb_fee),
+    "FB-II": get_stats(fb_cb_fee),
 }
 
-# Process Panel B policy (R+PR)
+# Process Panel B policy (PWPR)
 r_plus_pr_df = calculate_r_plus_pr_stats(UR_RESULTS_PATH)
 if r_plus_pr_df.empty:
     raise RuntimeError(
-        f"R+PR stats could not be computed because UR results were missing or empty "
+        f"PWPR stats could not be computed because UR results were missing or empty "
         f"(expected at {UR_RESULTS_PATH})."
     )
     
@@ -175,7 +185,7 @@ summary_data = []
 for policy, (median, min_v, max_v, lower_ci, upper_ci, cv) in panel_a_stats.items():
     summary_data.append({"Policy": policy, "Metric": "Value", "Median": median, "Min": min_v, "Max": max_v, "95_CI_Lower": lower_ci, "95_CI_Upper": upper_ci, "CV": cv})
 for metric, (median, min_v, max_v, lower_ci, upper_ci, cv) in panel_b_stats.items():
-    summary_data.append({"Policy": "R+PR", "Metric": metric, "Median": median, "Min": min_v, "Max": max_v, "95_CI_Lower": lower_ci, "95_CI_Upper": upper_ci, "CV": cv})
+    summary_data.append({"Policy": "PWPR", "Metric": metric, "Median": median, "Min": min_v, "Max": max_v, "95_CI_Lower": lower_ci, "95_CI_Upper": upper_ci, "CV": cv})
 
 summary_df = pd.DataFrame(summary_data)
 summary_path = DATA_FOR_FIGURES_DIR / "policy_restrictions_summary.csv"
@@ -184,18 +194,32 @@ print(f"Summary statistics saved to: {summary_path}")
 
 # --- 6. Plotting ---
 print("Generating policy restrictions figure...")
-fig = plt.figure(figsize=(14, 13), dpi=600)
+fig = plt.figure(figsize=(16.5, 13), dpi=600)
 gs = fig.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.6)
 
 # --- Panel A ---
 ax_a = fig.add_subplot(gs[0])
-gs_a = ax_a.get_subplotspec().subgridspec(1, 4, wspace=2.5)
+gs_a = ax_a.get_subplotspec().subgridspec(1, 5, wspace=3.5)
 ax_a.set_axis_off()
-policies_a = ["UR", "PR-I", "PR-II", "FB"]
+policies_a = ["UR", "PR-I", "PR-II", "FB-I", "FB-II"]
+
 ylabels_a = [
-    r"Optimal Water Limit" + "\n" + r"($10^4\,m^3$)", r"Optimal Withdrawal" + "\n" + r"Cutoff ($10^4\,m^3$)",
-    r"Optimal Number of" + "\n" + r"Senior Farmers (-)", r"Optimal Pumping" + "\n" + r"Fee ($ per m³)"
+    r"Individual Pumping Limit" + "\n" + r"($10^4\,m^3$)",
+    r"Regional Pumping Limit" + "\n" + r"($10^4\,m^3$)",
+    r"Number of Senior" + "\n" + r"Farmers Permitted" "\n" + r"to Pump (-)",
+    r"Pumping Fee" + "\n" + r"($ per m³)",
+    r"Puming Fee" + "\n" + r"($ per m³)",
 ]
+
+# Use shared y-axis limits for FB-I and FB-II because both are pumping fees
+fb_fee_values_for_ylim = []
+
+for policy in ["FB-I", "FB-II"]:
+    median, _, _, lower_ci, upper_ci, _ = panel_a_stats[policy]
+    fb_fee_values_for_ylim.extend([lower_ci, upper_ci, median])
+
+fb_fee_ymax = max(fb_fee_values_for_ylim) * 1.15
+fb_fee_ylim = (0, fb_fee_ymax)
 
 for i, (policy, ylabel) in enumerate(zip(policies_a, ylabels_a)):
     ax = fig.add_subplot(gs_a[i])
@@ -207,6 +231,10 @@ for i, (policy, ylabel) in enumerate(zip(policies_a, ylabels_a)):
     ax.set_facecolor(background_color)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.set_xticks([])
+    
+    if policy in ["FB-I", "FB-II"]:
+        ax.set_ylim(fb_fee_ylim)
+        
     # --- TEXT FORMATTING ---
     if policy == "UR":
         text_str = f"Median: {median:.2f} " + r"$\times 10^4\,m^3$" + f"\nCV: {cv:.2f}"
@@ -214,27 +242,29 @@ for i, (policy, ylabel) in enumerate(zip(policies_a, ylabels_a)):
             text_str = f"Median: {median:.0f} " + r"$\times 10^4\,m^3$" + f"\nCV: {cv:.2f}"
     elif policy == "PR-II":
         text_str = f"Median: {median:.0f}\nCV: {cv:.2f}"
-    elif policy == "FB":
+    elif policy in ["FB-I", "FB-II"]:
         text_str = f"Median: ${median:.2f} per m³\nCV: {cv:.2f}"
 
     ax.text(0.5, -0.15, text_str, transform=ax.transAxes, ha='center', va='top', fontsize=fontsize - 2)
 
-ax_a.text(-0.2, 1.1, "(a)", transform=ax_a.transAxes, fontsize=fontsize, fontweight='bold')
+ax_a.text(-0.13, 1.1, "(a)", transform=ax_a.transAxes, fontsize=fontsize, fontweight='bold')
 
 # --- Panel B ---
 ax_b = fig.add_subplot(gs[1])
-gs_b = ax_b.get_subplotspec().subgridspec(1, 3, wspace=3.9)
+gs_b = ax_b.get_subplotspec().subgridspec(1, 5, wspace=3.5)
 ax_b.set_axis_off()
-titles_b = ["Minimum Water Limit\nfor R+PR", "Median Water Limit\nfor R+PR", "Maximum Water Limit\nfor R+PR"]
+titles_b = ["Minimum Individual Pumping\nAllocation for PWPR", "Median Individual Pumping\nAllocation for PWPR", "Maximum Individual Pumping\nAllocation for PWPR"]
 stats_b = list(panel_b_stats.values())
 
+b_cols = [0, 2, 4]
+
 for i, (title, stats) in enumerate(zip(titles_b, stats_b)):
-    ax = fig.add_subplot(gs_b[i])
+    ax = fig.add_subplot(gs_b[b_cols[i]])
     median, _, _, lower_ci, upper_ci, cv = stats
-    ax.bar(0, median, width=0.5, color=COLORS["R+PR"], align='center')
+    ax.bar(0, median, width=0.5, color=COLORS["PWPR"], align='center')
     ax.errorbar(0, median, yerr=[[median - lower_ci], [upper_ci - median]], fmt='o', color='black', capsize=8)
     ax.set_title(title, fontsize=fontsize, pad=20)
-    ax.set_ylabel(r'Water Limit' + '\n' + r'($10^4\,m^3$)', fontsize=fontsize)
+    ax.set_ylabel(r'Individual Pumping Allocation' + '\n' + r'($10^4\,m^3$)', fontsize=fontsize)
     ax.set_facecolor(background_color)
     ax.tick_params(axis='y', labelsize=fontsize)
     ax.set_xticks([])
@@ -242,7 +272,7 @@ for i, (title, stats) in enumerate(zip(titles_b, stats_b)):
     text_str = f"Median: {median:.2f} " + r"$\times 10^4\,m^3$" + f"\nCV: {cv:.2f}"
     ax.text(0.5, -0.15, text_str, transform=ax.transAxes, ha='center', va='top', fontsize=fontsize - 2)
 
-ax_b.text(-0.2, 1.1, "(b)", transform=ax_b.transAxes, fontsize=fontsize, fontweight='bold')
+ax_b.text(-0.13, 1, "(b)", transform=ax_b.transAxes, fontsize=fontsize, fontweight='bold')
 
 # --- 7. Save Figure ---
 save_path = FIGURES_DIR / "policy_restrictions_summary.png"

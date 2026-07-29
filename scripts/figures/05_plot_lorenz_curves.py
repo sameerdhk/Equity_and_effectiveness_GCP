@@ -66,10 +66,11 @@ os.makedirs(FIGURES_DIR, exist_ok=True)
 POLICY_STYLES = {
     "BAU":  {"color": "#808080", "linestyle": "-", "lw": 2, "zorder": 2},
     "UR":   {"color": "#C00000", "linestyle": "-", "lw": 2.5, "zorder": 4},
-    "FB":   {"color": "#FF7F0E", "linestyle": "-", "lw": 2, "zorder": 2},
+    "FB-I":   {"color": "#FF7F0E", "linestyle": "-", "lw": 2, "zorder": 2},
+    "FB-II": {"color": "#B85C00", "linestyle": "--", "lw": 2.5, "zorder": 6},
     "PR-I": {"color": "#4169E1", "linestyle": ":", "lw": 2, "zorder": 5},
-    "PR-II":{"color": "#191970", "linestyle": "-", "lw": 2, "zorder": 2},
-    "R+PR": {"color": "#DAA520", "linestyle": (0, (5, 5)), "lw": 3, "zorder": 5},
+    "PR-II":{"color": "#00BFFF", "linestyle": "-", "lw": 2, "zorder": 2},
+    "PWPR": {"color": "#DAA520", "linestyle": (0, (5, 5)), "lw": 3, "zorder": 5},
 }
 background_color = '#F0F0F0'
 plt.rcParams['font.family'] = 'Arial'
@@ -97,7 +98,7 @@ avg_profit_irrigated = (
 # --- 5. Generate Lorenz Curve Plot ---
 print("Generating Lorenz Curve plot...")
 
-fig = plt.figure(figsize=(10, 8), dpi=600)
+fig = plt.figure(figsize=(10, 8), dpi=800)
 ax = fig.add_subplot(111)
 
 gini_summary = []
@@ -120,14 +121,14 @@ for policy in policy_order:
         ax.plot(x, y, label=f"{policy} (Gini: {gini:.3f})", **style)
 
 # Plot lines for perfect equality and inequality
-ax.plot([0, 1], [0, 1], 'k--', label="Perfect Equality")
-ax.plot([0, 1, 1], [0, 0, 1], color='red', linestyle='--', label="Perfect Inequality")
+ax.plot([0, 1], [0, 1], 'k--', label="Perfect Equality (Gini: 0.0)")
+ax.plot([0, 1, 1], [0, 0, 1], color='red', linestyle='--', label="Perfect Inequality (Gini: 1.0)")
 
 # --- 6. Formatting and Saving ---
 # ax.set_title("Average Yearly Profit Among Farmers Equipped for Irrigation", fontsize=20, fontweight='bold')
-ax.set_xlabel("Cumulative Share of Farmers", fontsize=18)
-ax.set_ylabel("Cumulative Share of Profit", fontsize=18)
-ax.tick_params(axis='both', which='major', labelsize=16)
+ax.set_xlabel("Cumulative Share of Farmers", fontsize=20)
+ax.set_ylabel("Cumulative Share of Profit", fontsize=20)
+ax.tick_params(axis='both', which='major', labelsize=18)
 ax.grid(True, which='major', linestyle='--', linewidth=0.5, color='grey', alpha=0.7)
 ax.set_aspect('equal', adjustable='box')
 ax.set_facecolor(background_color)
@@ -136,7 +137,7 @@ handles, labels = ax.get_legend_handles_labels()
 order = {label.split(' ')[0]: i for i, label in enumerate(policy_order)}
 handles, labels = zip(*sorted(zip(handles, labels), key=lambda t: order.get(t[1].split(' ')[0], 99)))
 
-fig.legend(handles, labels, loc='upper center', ncol=3, frameon=False, bbox_to_anchor=(0.5, 1.13), fontsize=16)
+fig.legend(handles, labels, loc='upper center', ncol=3, frameon=False, bbox_to_anchor=(0.5, 1.15), fontsize=20)
 
 plt.tight_layout()
 save_path = FIGURES_DIR / "lorenz_curve.png"

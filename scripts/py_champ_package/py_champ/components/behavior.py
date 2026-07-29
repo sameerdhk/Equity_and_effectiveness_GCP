@@ -17,6 +17,7 @@
 import mesa
 import numpy as np
 import gurobipy as gp
+from copy import deepcopy
 
 
 # --- 2. Define the Behavior Agent Class ---
@@ -132,6 +133,10 @@ class Behavior(mesa.Agent):
            else:
                self.prior_appropriation_status = False
                
+        # --- 3a.1 Cash-for-Blue counterfactual for enrolled farmers ---
+        if getattr(self.model, "cash_for_blue_enabled", False) and getattr(self, "cb_enrolled", False):
+            self.compute_cash_for_blue_counterfactual()        
+        
         # --- 3b. Core Decision-Making ---
         # The agent makes decisions using a two-step optimization process.
         # Step 1: Optimize crop choice based on forecasted conditions.
@@ -165,6 +170,240 @@ class Behavior(mesa.Agent):
             self.run_simulation()
 
         return self
+
+    def _snapshot_agent_state(self, agent):
+        """
+        Snapshot an agent state without deep-copying the full model object.
+        Used only for FB-CB counterfactual rollback.
+        """
+        state = {}
+        for k, v in agent.__dict__.items():
+            if k == "model":
+                continue
+            try:
+                state[k] = deepcopy(v)
+            except Exception:
+                state[k] = v
+        return state
+
+    def _restore_agent_state(self, agent, state):
+        """
+        Restore an agent state after FB-CB counterfactual simulation.
+        """
+        model_ref = agent.model
+        agent.__dict__.clear()
+        agent.__dict__.update(state)
+        agent.model = model_ref
+
+    def compute_cash_for_blue_counterfactual(self):
+        """
+        For FB-CB enrolled farmers only:
+        estimate realized normal-FB profit and irrigation volume if the farmer
+        had not been enrolled.
+
+        The optimizer chooses the counterfactual decision. Then fields, wells,
+        and finance are simulated so the counterfactual profit uses current-year
+        realized prices/costs, pumping energy, and pumping fees.
+        """
+        if not getattr(self.model, "cash_for_blue_enabled", False):
+            return
+
+        if not getattr(self, "cb_enrolled", False):
+            return
+
+        current_year = self.model.current_year
+        prec_aw_step = self.model.prec_aw_step
+        aquifers = self.aquifers
+        fields = self.fields
+        wells = self.wells
+
+        original_field_types = {
+            fid: field.field_type for fid, field in fields.items()
+        }
+        field_states = {fid: self._snapshot_agent_state(field) for fid, field in fields.items()}
+        well_states = {wid: self._snapshot_agent_state(well) for wid, well in wells.items()}
+        finance_state = self._snapshot_agent_state(self.finance)
+
+        try:
+            # Temporarily restore normal FB eligibility.
+            for _, field in fields.items():
+                field.field_type = field.field_type_rn
+
+            # Counterfactual normal-FB decision.
+            cf_dm1 = self.make_dm1(dm_sols=self.pre_dm_sols)
+            cf_dm2 = self.make_dm2(dm_sols=cf_dm1)
+
+            # ---- Counterfactual field simulation ----
+            for fi, field in fields.items():
+                irr_depth = cf_dm2[fi]["irr_depth"][:, :, [0]]
+                i_crop = cf_dm2[fi]["i_crop"].copy()
+                i_te = cf_dm2[fi]["i_te"]
+
+                field.step(
+                    irr_depth=irr_depth,
+                    i_crop=i_crop,
+                    i_te=i_te,
+                    prec_aw=prec_aw_step[field.prec_aw_id][current_year],
+                )
+
+            # ---- Counterfactual well simulation ----
+            allo_r = cf_dm2["allo_r"]
+            allo_r_w = cf_dm2["allo_r_w"]
+            field_ids = cf_dm2["field_ids"]
+            well_ids = cf_dm2["well_ids"]
+
+            cf_irr_vol = sum([field.irr_vol_per_field for _, field in fields.items()])
+
+            for k, wid in enumerate(well_ids):
+                well = wells[wid]
+                withdrawal = cf_irr_vol * allo_r_w[k, 0]
+                pumping_rate = sum(
+                    [
+                        fields[fid].pumping_rate * allo_r[f, k, 0]
+                        for f, fid in enumerate(field_ids)
+                    ]
+                )
+                l_pr = sum(
+                    [
+                        fields[fid].l_pr * allo_r[f, k, 0]
+                        for f, fid in enumerate(field_ids)
+                    ]
+                )
+                dwl = aquifers[well.aquifer_id].dwl
+
+                well.step(
+                    withdrawal=withdrawal,
+                    dwl=dwl,
+                    pumping_rate=pumping_rate,
+                    l_pr=l_pr,
+                )
+
+            # ---- Dry-well adjustment, same logic as actual simulation ----
+            at_least_one_dry_well = any(wells[wid].st <= 0.5 for wid in well_ids)
+
+            if at_least_one_dry_well:
+                eligible_well_ids = [wid for wid in well_ids if wells[wid].st > 0.5]
+
+                if not eligible_well_ids:
+                    # Restore field and well states before re-simulating zero-irrigation case.
+                    for fid, field in fields.items():
+                        self._restore_agent_state(field, field_states[fid])
+                        field.field_type = field.field_type_rn
+
+                    for wid, well in wells.items():
+                        self._restore_agent_state(well, well_states[wid])
+
+                    # Re-simulate fields with zero irrigation.
+                    for fi, field in fields.items():
+                        zero_irr = np.zeros_like(cf_dm2[fi]["irr_depth"][:, :, [0]])
+                        field.step(
+                            irr_depth=zero_irr,
+                            i_crop=cf_dm2[fi]["i_crop"].copy(),
+                            i_te=cf_dm2[fi]["i_te"],
+                            prec_aw=prec_aw_step[field.prec_aw_id][current_year],
+                        )
+
+                    cf_irr_vol = 0.0
+
+                    # Set all wells to zero withdrawal/energy for finance calculation.
+                    for _, well in wells.items():
+                        well.withdrawal = 0.0
+                        well.pumping_rate = 0.0
+                        well.e = 0.0
+
+                else:
+                    # Restore wells before re-running eligible-well allocation.
+                    for wid, well in wells.items():
+                        self._restore_agent_state(well, well_states[wid])
+
+                    total_allo_r_w = sum(
+                        allo_r_w[k, 0]
+                        for k, wid in enumerate(well_ids)
+                        if wid in eligible_well_ids
+                    )
+
+                    if total_allo_r_w > 0:
+                        normalized_allo_r_w = {
+                            wid: allo_r_w[k, 0] / total_allo_r_w
+                            for k, wid in enumerate(well_ids)
+                            if wid in eligible_well_ids
+                        }
+                    else:
+                        normalized_allo_r_w = {
+                            wid: 1 / len(eligible_well_ids)
+                            for wid in eligible_well_ids
+                        }
+
+                    for k, wid in enumerate(well_ids):
+                        well = wells[wid]
+
+                        if wid not in eligible_well_ids:
+                            well.withdrawal = 0.0
+                            well.pumping_rate = 0.0
+                            well.e = 0.0
+                            continue
+
+                        withdrawal = cf_irr_vol * normalized_allo_r_w[wid]
+                        pumping_rate = sum(
+                            [
+                                fields[fid].pumping_rate * allo_r[f, k, 0]
+                                for f, fid in enumerate(field_ids)
+                            ]
+                        )
+                        l_pr = sum(
+                            [
+                                fields[fid].l_pr * allo_r[f, k, 0]
+                                for f, fid in enumerate(field_ids)
+                            ]
+                        )
+                        dwl = aquifers[well.aquifer_id].dwl
+
+                        well.step(
+                            withdrawal=withdrawal,
+                            dwl=dwl,
+                            pumping_rate=pumping_rate,
+                            l_pr=l_pr,
+                        )
+
+            # Calculate realized counterfactual profit using finance class.
+            # This includes current-year prices/costs and pumping fee.
+            self.finance.step(fields=fields, wells=wells)
+
+            self.cb_counterfactual_profit = self.finance.profit
+            self.cb_counterfactual_irr_vol = cf_irr_vol
+            self.cb_counterfactual_dm_sols = cf_dm2
+            self.cb_counterfactual_pumping_fee = getattr(self.finance, "cost_p", None)
+
+        finally:
+            # Restore actual enrolled state.
+            for fid, field in fields.items():
+                self._restore_agent_state(field, field_states[fid])
+                field.field_type = original_field_types[fid]
+
+            for wid, well in wells.items():
+                self._restore_agent_state(well, well_states[wid])
+
+            self._restore_agent_state(self.finance, finance_state)
+            
+    def apply_cash_for_blue_payout(self):
+        """
+        Adds cash-for-blue payout only when the model is running FB_CB.
+        Does nothing for FB, UR, PR-I, PR-II, R+PR, or baseline.
+        """
+        if not getattr(self.model, "cash_for_blue_enabled", False):
+            return
+    
+        cb_enrolled = getattr(self, "cb_enrolled", False)
+        cb_payout = getattr(self, "cb_payout", 0.0)
+    
+        self.cb_production_profit = self.finance.profit
+    
+        if cb_enrolled:
+            self.profit = self.cb_production_profit + cb_payout
+        else:
+            self.profit = self.cb_production_profit
+    
+        self.cb_total_profit = self.profit
 
     def run_simulation(self):
         """
@@ -293,7 +532,13 @@ class Behavior(mesa.Agent):
 
         # --- 4e. Store Final Agent-Level Results ---
         self.profit = self.finance.profit
+        # For FB-CB only, replace reported profit with production profit + payout.
+        # For all other policies, this leaves profit unchanged.        
+        if getattr(self.model, "cash_for_blue_enabled", False):
+            self.apply_cash_for_blue_payout()
+        
         self.avg_profit_per_field = self.profit / len(fields)
+        
         self.yield_rate = sum(
             [field.yield_rate_per_field for _, field in fields.items()]
         ) / len(fields)

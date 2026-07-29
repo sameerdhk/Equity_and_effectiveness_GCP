@@ -107,6 +107,11 @@ class GCPModelFb(mesa.Model):
         self.seed = seed
         self.rngen = np.random.default_rng(seed) # Random number generator for reproducibility
         self.accumulated_withdrawal = 0 # This will track pumping within a year
+        
+        # --- Cash-for-Blue / policy mode settings ---
+        self.policy_mode = kwargs.get("policy_mode", "FB").upper()
+        self.cash_for_blue_enabled = self.policy_mode == "FB_CB"
+        self.cash_for_blue_config = kwargs.get("cash_for_blue_config", {}) or {}
 
         # --- 2c. Store Model Parameters and Input Data ---
         # Time-series data passed as keyword arguments
@@ -124,6 +129,30 @@ class GCPModelFb(mesa.Model):
         self.area_split = area_split
         self.crop_options = crop_options
         self.tech_options = tech_options
+        
+        # --- Cash-for-Blue state variables ---
+        self.cb_available_fund = 0.0
+        self.cb_fee_revenue_current_year = 0.0
+        self.cb_fee_revenue_prev_year = 0.0
+        self.cb_carryover_prev_year = 0.0
+        self.cb_unspent_balance = 0.0
+        # Output-only variables: values used to create the current year's fund
+        self.cb_fee_revenue_used_for_fund = 0.0
+        self.cb_carryover_used_for_fund = 0.0
+        self.cb_rainfed_benchmark_used_for_selection = None
+
+        self.cb_enrolled_ids = set()
+        self.cb_payouts = {}
+
+        self.cb_ref_profit_prev = {}
+        self.cb_ref_irr_prev = {}
+        self.cb_ref_profit_current = {}
+        self.cb_ref_irr_current = {}
+
+        self.cb_rainfed_benchmark_prev = None
+        self.cb_rainfed_benchmark_current = None
+
+        self.cb_min_irr_vol = self.cash_for_blue_config.get("min_irr_vol", 1e-9)
 
         # --- 2d. Initialize Scheduler and Gurobi Environment ---
         self.schedule = BaseSchedulerByTypeFiltered(self)
@@ -286,7 +315,8 @@ class GCPModelFb(mesa.Model):
             "yield_rate": get_agt_attr("yield_rate"), "profit": get_agt_attr("profit"),
             "profit_per_field": get_agt_attr("avg_profit_per_field"), "pumping_fee": get_agt_attr("finance.cost_p"),
             "revenue": get_agt_attr("finance.rev"), "energy_cost": get_agt_attr("finance.cost_e"),
-            "tech_cost": get_agt_attr("finance.tech_cost"), "irr_vol": get_agt_attr("irr_vol"),
+            
+            "tech_cost": get_agt_attr("finance.cost_tech"), "irr_vol": get_agt_attr("irr_vol"),
             "gp_status": get_agt_attr("gp_status"), "gp_MIPGap": get_agt_attr("gp_MIPGap"),
             "num_fields": get_agt_attr("num_fields"), "num_wells": get_agt_attr("num_wells"),
             "total_field_area": get_agt_attr("total_field_area"),
@@ -309,7 +339,38 @@ class GCPModelFb(mesa.Model):
             "withdrawal": get_agt_attr("withdrawal"), "GW_st": get_agt_attr("st"),
             "GW_dwl": get_agt_attr("dwl"),
         }
+        
+        if self.cash_for_blue_enabled:
+            agent_reporters.update({
+                # Cash-for-Blue current-year outcomes
+                "cb_enrolled": get_agt_attr("cb_enrolled"),
+                "cb_payout": get_agt_attr("cb_payout"),
+                "cb_production_profit": get_agt_attr("cb_production_profit"),
+        
+                # Values used for this year's enrollment and payout decision
+                "cb_selection_ref_profit": get_agt_attr("cb_selection_ref_profit"),
+                "cb_selection_ref_irr_vol": get_agt_attr("cb_selection_ref_irr_vol"),
+                "cb_selection_ranking_score": get_agt_attr("cb_selection_ranking_score"),
+                "cb_payout_benchmark_used": get_agt_attr("cb_payout_benchmark_used"),
+            })
+            
         model_reporters = {}
+        
+        if self.cash_for_blue_enabled:
+            model_reporters.update({
+                # Current-year fund and enrollment accounting
+                "cb_available_fund": lambda m: getattr(m, "cb_available_fund", None),
+                "cb_fee_revenue_used_for_fund": lambda m: getattr(m, "cb_fee_revenue_used_for_fund", None),
+                "cb_carryover_used_for_fund": lambda m: getattr(m, "cb_carryover_used_for_fund", None),
+                "cb_rainfed_benchmark_used_for_selection": lambda m: getattr(m, "cb_rainfed_benchmark_used_for_selection", None),
+        
+                # Current-year outcomes
+                "cb_fee_revenue_current_year": lambda m: getattr(m, "cb_fee_revenue_current_year", None),
+                "cb_unspent_balance": lambda m: getattr(m, "cb_unspent_balance", None),
+                "cb_num_enrolled": lambda m: len(getattr(m, "cb_enrolled_ids", [])),
+                "cb_total_payout": lambda m: sum(getattr(m, "cb_payouts", {}).values()),
+            })
+        
         self.datacollector = mesa.DataCollector(
             model_reporters=model_reporters, agent_reporters=agent_reporters
         )
@@ -376,6 +437,9 @@ class GCPModelFb(mesa.Model):
                         finance.crop_fcost_avg = year_fcost_avg
                         finance.finance_dict['crop_fixed_cost_avg'] = year_fcost_avg
 
+        # --- 3a.1 Cash-for-Blue enrollment preparation ---
+        self.prepare_cash_for_blue_enrollment()
+
         # --- 3b. Pre-Step Agent Logic ---
         for _behavior_id, behavior in self.behaviors.items():
             # Store decisions from the previous step for analysis
@@ -410,8 +474,10 @@ class GCPModelFb(mesa.Model):
             # Update the aquifer state based on total withdrawal
             aquifer.step(withdrawal)
 
-        # --- 3e. Data Collection and Logging ---
-        self.datacollector.collect(self)
+        # --- 3e. Cash-for-Blue accounting, Data Collection, and Logging ---
+        self.finalize_cash_for_blue_year()
+        self.datacollector.collect(self)   
+    
         if self.show_step:
             print(f"Year {self.current_year} [{self.t}/{self.total_steps}]\t{self.time_recorder.get_elapsed_time()}\n")
 
@@ -419,6 +485,214 @@ class GCPModelFb(mesa.Model):
         if self.current_year == self.end_year:
             self.running = False
             print("Done!", f"\t{self.time_recorder.get_elapsed_time()}")
+
+    def prepare_cash_for_blue_enrollment(self):
+        """
+        Select farmers for FB-CB enrollment at the start of the year.
+        Uses previous-year reference normal-FB profit per irrigation volume.
+        """
+        if not self.cash_for_blue_enabled:
+            return
+        
+        # Record the values that are actually being used for this year's enrollment.
+        self.cb_fee_revenue_used_for_fund = self.cb_fee_revenue_prev_year
+        self.cb_carryover_used_for_fund = self.cb_carryover_prev_year
+        self.cb_rainfed_benchmark_used_for_selection = self.cb_rainfed_benchmark_prev
+
+        # Reset annual CB status and restore fields to normal eligibility
+        self.cb_enrolled_ids = set()
+        self.cb_payouts = {}
+
+        for bid, behavior in self.behaviors.items():
+            behavior.cb_enrolled = False
+            behavior.cb_payout = 0.0
+            behavior.cb_production_profit = None
+            behavior.cb_total_profit = None
+            behavior.cb_reference_profit = None
+            behavior.cb_reference_irr_vol = None
+            behavior.cb_ranking_score = None
+            behavior.cb_rainfed_benchmark = self.cb_rainfed_benchmark_prev
+            behavior.cb_counterfactual_profit = None
+            behavior.cb_counterfactual_pumping_fee = None
+            behavior.cb_counterfactual_irr_vol = None
+            behavior.cb_selection_ref_profit = None
+            behavior.cb_selection_ref_irr_vol = None
+            behavior.cb_selection_ranking_score = None
+            behavior.cb_selection_rainfed_benchmark = None
+            behavior.cb_payout_benchmark_used = None
+            behavior.cb_selection_payout_required = None
+
+            # Restore normal FB field eligibility before applying this year's enrollment
+            for _, field in behavior.fields.items():
+                field.field_type = field.field_type_rn
+
+        # No enrollment in first policy year because no previous-year ranking/fund exists
+        if (
+            self.current_year <= self.start_year
+            or not self.cb_ref_profit_prev
+            or not self.cb_ref_irr_prev
+            or self.cb_rainfed_benchmark_prev is None
+        ):
+            self.cb_available_fund = self.cb_fee_revenue_prev_year + self.cb_carryover_prev_year
+            self.cb_unspent_balance = self.cb_available_fund
+            return
+
+        # Available fund = previous-year fee revenue + previous unspent balance
+        self.cb_available_fund = self.cb_fee_revenue_prev_year + self.cb_carryover_prev_year
+        remaining_fund = self.cb_available_fund
+
+        candidates = []
+
+        for bid, behavior in self.behaviors.items():
+            # Eligible only if historically irrigation-equipped
+            irrigation_equipped = any(
+                getattr(field, "field_type_rn", None) != "rainfed"
+                for _, field in behavior.fields.items()
+            )
+            if not irrigation_equipped:
+                continue
+
+            ref_profit = self.cb_ref_profit_prev.get(bid)
+            ref_irr = self.cb_ref_irr_prev.get(bid)
+
+            if ref_profit is None or ref_irr is None or ref_irr <= self.cb_min_irr_vol:
+                continue
+
+            ranking_score = ref_profit / ref_irr
+            benchmark_for_payout = max(0.0, self.cb_rainfed_benchmark_prev)
+            payout = max(0.0, ref_profit - benchmark_for_payout)
+            
+            allow_zero_payout = self.cash_for_blue_config.get("allow_zero_payout_enrollment", False)
+            zero_payout_rule = self.cash_for_blue_config.get("zero_payout_rule", "negative_ref_profit_only")
+            
+            if payout <= 0:
+                if zero_payout_rule == "negative_ref_profit_only":
+                    zero_payout_eligible = ref_profit < 0
+            
+                elif zero_payout_rule == "nonpositive_payout":
+                    zero_payout_eligible = True
+            
+                else:
+                    raise ValueError(
+                        f"Unknown zero_payout_rule: {zero_payout_rule}. "
+                        "Use 'negative_ref_profit_only' or 'nonpositive_payout'."
+                    )
+            
+                if not allow_zero_payout or not zero_payout_eligible:
+                    continue
+            
+            candidates.append({
+                "bid": bid,
+                "ranking_score": ranking_score,
+                "payout": payout,
+                "ref_profit": ref_profit,
+                "ref_irr": ref_irr,
+                "benchmark_for_payout": benchmark_for_payout,
+            })
+
+        # Lowest return per irrigation water gets highest priority
+        candidates = sorted(candidates, key=lambda x: x["ranking_score"])
+
+        for c in candidates:
+            if c["payout"] <= 0 or remaining_fund >= c["payout"]:
+                bid = c["bid"]
+                behavior = self.behaviors[bid]
+
+                behavior.cb_enrolled = True
+                behavior.cb_payout = c["payout"]
+                behavior.cb_reference_profit = c["ref_profit"]
+                behavior.cb_reference_irr_vol = c["ref_irr"]
+                behavior.cb_ranking_score = c["ranking_score"]
+                behavior.cb_rainfed_benchmark = self.cb_rainfed_benchmark_prev
+                
+                behavior.cb_selection_ref_profit = c["ref_profit"]
+                behavior.cb_selection_ref_irr_vol = c["ref_irr"]
+                behavior.cb_selection_ranking_score = c["ranking_score"]
+                behavior.cb_selection_rainfed_benchmark = self.cb_rainfed_benchmark_prev
+                behavior.cb_payout_benchmark_used = c["benchmark_for_payout"]
+                behavior.cb_selection_payout_required = c["payout"]
+
+                # Force enrolled farmer to rainfed for this year
+                for _, field in behavior.fields.items():
+                    field.field_type = "rainfed"
+
+                self.cb_enrolled_ids.add(bid)
+                self.cb_payouts[bid] = c["payout"]
+                remaining_fund -= c["payout"]
+            else:
+                break
+
+        self.cb_unspent_balance = remaining_fund
+
+    def finalize_cash_for_blue_year(self):
+        """
+        End-of-year FB-CB accounting:
+        - collect fee revenue
+        - calculate observed rainfed benchmark
+        - store current-year reference values for next year's ranking
+        """
+        if not self.cash_for_blue_enabled:
+            return
+
+        # 1. Current-year fee revenue
+        self.cb_fee_revenue_current_year = sum(
+            (getattr(behavior.finance, "cost_p", 0.0) or 0.0)
+            for _, behavior in self.behaviors.items()
+        )
+
+        # 2. Observed rainfed benchmark from always-rainfed farmers
+        rainfed_profits = []
+        for _, behavior in self.behaviors.items():
+            always_rainfed = all(
+                getattr(field, "field_type_rn", None) == "rainfed"
+                for _, field in behavior.fields.items()
+            )
+            if always_rainfed:
+                prod_profit = getattr(behavior, "cb_production_profit", None)
+                if prod_profit is None:
+                    prod_profit = getattr(behavior, "profit", None)
+                if prod_profit is not None:
+                    rainfed_profits.append(prod_profit)
+
+        if len(rainfed_profits) > 0:
+            self.cb_rainfed_benchmark_current = float(np.mean(rainfed_profits))
+        else:
+            self.cb_rainfed_benchmark_current = 0.0
+
+        # 3. Store reference normal-FB values for next year
+        self.cb_ref_profit_current = {}
+        self.cb_ref_irr_current = {}
+
+        for bid, behavior in self.behaviors.items():
+            if getattr(behavior, "cb_enrolled", False):
+                # Use realized shadow normal-FB values for enrolled farmers
+                ref_profit = getattr(behavior, "cb_counterfactual_profit", None)
+                ref_irr = getattr(behavior, "cb_counterfactual_irr_vol", None)
+            else:
+                # Use actual normal-FB production profit and irrigation for non-enrolled farmers
+                ref_profit = getattr(behavior, "cb_production_profit", None)
+                if ref_profit is None:
+                    ref_profit = getattr(behavior, "profit", None)
+                ref_irr = getattr(behavior, "irr_vol", None)
+
+            self.cb_ref_profit_current[bid] = ref_profit
+            self.cb_ref_irr_current[bid] = ref_irr
+
+            behavior.cb_reference_profit = ref_profit
+            behavior.cb_reference_irr_vol = ref_irr
+            behavior.cb_rainfed_benchmark = self.cb_rainfed_benchmark_current
+
+            if ref_profit is not None and ref_irr is not None and ref_irr > self.cb_min_irr_vol:
+                behavior.cb_ranking_score = ref_profit / ref_irr
+            else:
+                behavior.cb_ranking_score = None
+
+        # 4. Move current-year values into previous-year slots for next year
+        self.cb_fee_revenue_prev_year = self.cb_fee_revenue_current_year
+        self.cb_carryover_prev_year = self.cb_unspent_balance
+        self.cb_ref_profit_prev = self.cb_ref_profit_current.copy()
+        self.cb_ref_irr_prev = self.cb_ref_irr_current.copy()
+        self.cb_rainfed_benchmark_prev = self.cb_rainfed_benchmark_current
 
     def end(self):
         """Cleans up the Gurobi environment after the simulation finishes."""
@@ -435,7 +709,7 @@ class GCPModelFb(mesa.Model):
 
         # Process Field data
         df_fields = df[df["agt_type"] == "Field"].dropna(axis=1, how="all").copy()
-        df_fields["field_type"] = np.nan
+        df_fields["field_type"] = None
         df_fields.loc[df_fields["irr_vol_per_field"] == 0, "field_type"] = "rainfed"
         df_fields.loc[df_fields["irr_vol_per_field"] > 0, "field_type"] = "irrigated"
         df_fields["crop"] = [c[0] for c in df_fields["crop"]] # Assumes area_split = 1
@@ -481,6 +755,24 @@ class GCPModelFb(mesa.Model):
                 df_sys[crop] = dff_crop[crop] / total_area
             else:
                 df_sys[crop] = 0
+                
+        if getattr(model, "cash_for_blue_enabled", False):
+            try:
+                df_model = model.datacollector.get_model_vars_dataframe().copy()
+                df_model = df_model.reset_index(drop=True)
+        
+                # Align model-level CB outputs to the same years already used by df_sys.
+                # This avoids shifting CB accounting one year earlier.
+                if len(df_model) == len(df_sys):
+                    df_model.index = df_sys.index
+                else:
+                    df_model.index = df_sys.index[:len(df_model)]
+        
+                for col in df_model.columns:
+                    df_sys.loc[df_model.index, col] = df_model[col].values
+        
+            except Exception as e:
+                print(f"Warning: could not merge CB model-level outputs into df_sys: {e}")          
 
         return df_sys
 

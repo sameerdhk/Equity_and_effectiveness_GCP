@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
+import statsmodels.api as sm
 
 # ================================================================
 # Paths (auto-resolve from script location)
@@ -112,18 +113,30 @@ print(f"Reading prices from: {PRICES_CSV}")
 prices = read_csv_autodelim(PRICES_CSV)
 prices["crop"] = prices["crop"].astype(str).str.strip().str.lower()
 
-fb_files = sorted(RESULTS_DIR.glob("profit_distribution_FB*.csv"))
-print(f"  Found {len(fb_files)} FB files in {RESULTS_DIR}")
-if not fb_files:
-    raise RuntimeError(f"No FB files found in {RESULTS_DIR}")
-
-
 # ================================================================
-# Load and combine all FB profit-distribution CSVs
+# Load FB-I files only
 # ================================================================
-fb_files = sorted(RESULTS_DIR.glob("profit_distribution_FB*.csv"))
+FB_I_PATTERN = "profit_distribution_FB_I_b_*.csv"
+
+fb_files = sorted(RESULTS_DIR.glob(FB_I_PATTERN))
+
+print(f"Found {len(fb_files)} FB-I files in {RESULTS_DIR}")
+
 if not fb_files:
-    raise RuntimeError(f"No FB files found in {RESULTS_DIR}")
+    raise RuntimeError(
+        f"No FB-I files found using pattern: {FB_I_PATTERN}"
+    )
+
+if any("FB_II" in f.name for f in fb_files):
+    raise RuntimeError("FB-II files were mistakenly included.")
+
+print("First three files loaded:")
+for f in fb_files[:3]:
+    print(f"  {f.name}")
+
+print("Last three files loaded:")
+for f in fb_files[-3:]:
+    print(f"  {f.name}")
 
 frames = []
 for f in fb_files:
@@ -254,6 +267,40 @@ mask = x.notna() & y.notna()
 X = x[mask].to_numpy().reshape(-1, 1)
 Y = y[mask].to_numpy()
 
+# ------------------------------------------------------------
+# Statistical inference for the MR–MC regression
+# ------------------------------------------------------------
+# X currently has shape (n, 1); flatten it before adding a constant.
+X_inference = sm.add_constant(X.ravel())
+
+# HC3 provides heteroskedasticity-robust standard errors.
+ols_model = sm.OLS(Y, X_inference).fit(cov_type="HC3")
+
+slope_inference = ols_model.params[1]
+intercept_inference = ols_model.params[0]
+
+slope_ci_low, slope_ci_high = ols_model.conf_int(alpha=0.05)[1]
+
+# H0: slope = 1
+slope_test = ols_model.t_test("x1 = 1")
+
+# Joint identity-line test:
+# H0: intercept = 0 and slope = 1
+identity_test = ols_model.f_test("const = 0, x1 = 1")
+
+print("\nRegression inference:")
+print(f"  Intercept: {intercept_inference:.6f}")
+print(f"  Slope: {slope_inference:.6f}")
+print(
+    f"  95% CI for slope: "
+    f"({slope_ci_low:.6f}, {slope_ci_high:.6f})"
+)
+print(f"  Test H0: slope = 1, p = {float(slope_test.pvalue):.6f}")
+print(
+    "  Joint test H0: intercept = 0 and slope = 1, "
+    f"p = {float(identity_test.pvalue):.6f}"
+)
+
 # Linear Regression
 reg = LinearRegression().fit(X, Y)
 r2 = reg.score(X, Y)
@@ -325,7 +372,7 @@ ax.text(-0.1, 1.05, "(b)", transform=ax.transAxes, fontsize=12, fontweight="bold
 # Final Layout and Save
 # ----------------------------------------------------------------
 plt.tight_layout()
-save_path = FIG_DIR / "figS2_MR_MC.png"
+save_path = FIG_DIR / "figS9_MR_MC.png"
 plt.savefig(save_path, dpi=600, bbox_inches="tight")
 plt.close()
 
